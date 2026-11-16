@@ -1,0 +1,2 @@
+[console_scripts]
+insula-plot = insula_plotter.cli:main

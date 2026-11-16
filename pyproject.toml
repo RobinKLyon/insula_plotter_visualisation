@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "insula-mni152-plotter"
+version = "0.13.0"
+description = "Project MNI152 electrode sites onto a Julich-Brain 3.1 labelled fsLR insula surface."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.1",
+  "nibabel>=5.2",
+  "matplotlib>=3.8",
+  "scipy>=1.11",
+  "neuromaps>=0.0.5",
+  "siibra>=0.4",
+  "PyYAML>=6.0",
+]
+
+[project.scripts]
+insula-plot = "insula_plotter.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["insula_plotter*"]

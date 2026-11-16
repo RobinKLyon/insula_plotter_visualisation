@@ -1,0 +1,6 @@
+site_id,label,x,y,z,color,status,area
+S01,Site A,-37,-4,8,#E45756,both,id4
+S02,Site B,-40,-10,3,#4C78A8,loss_only,ia2
+S03,Site C,42,-8,7,#F58518,gain_only,id6
+S04,Site D,40,-2,-6,#54A24B,both_prefer_gain,id8
+S05,Site E,-35,-12,2,#333333,both_prefer_loss,id7
