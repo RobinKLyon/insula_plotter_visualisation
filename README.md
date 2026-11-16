@@ -2,6 +2,13 @@
 
 Projet Python pour projeter les 83 contacts iEEG MNI152 fournis sur la surface insulaire Julich-Brain / fsLR, en utilisant les sélections manuelles dorsal/ventral déjà présentes dans le CSV de résultats.
 
+
+## Aperçu
+
+Visualisation des 83 contacts iEEG projetés sur la surface insulaire fsLR 32k, avec leur répartition sur les deux hémisphères.
+
+![Visualisation des sites insulaires sur la surface fsLR 32k](outputs_example/insula_sites_fslr32k.png)
+
 ## Ce qui change en V13
 
 ### Placement Julich guidé par le groupe dorsal/ventral
@@ -80,4 +87,3 @@ La suite hors ligne contient 22 tests, dont des tests du snap D/V sans cutoff de
 ## Limite méthodologique
 
 La projection part de coordonnées MNI152 puis utilise la surface standard fsLR. Elle diffère de la chaîne de l'article Huang et al. fondée sur la localisation individuelle CT/T1, la reconstruction FreeSurfer et l'enregistrement de surface. Les contacts ayant un snap de grande distance doivent être interprétés comme des positions de visualisation contraintes par l'annotation D/V manuelle, et non comme une correction anatomique indépendante.
-
