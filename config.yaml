@@ -1,5 +1,5 @@
 input:
-  csv: C:\Users\Robin\Documents\THESE_CODE\PROJET_META_ANALYSE\Data_manadgement\outputs\baseline_raw_11161356\data\gain_loss_responses\mni_site_csv\mni_sites_positive_Beta_with_t_value.csv
+  csv: 
   x_column: x
   y_column: y
   z_column: z
