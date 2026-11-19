@@ -1,0 +1,7 @@
+hemisphere,group,n_input,n_displayed_total,n_displayed_on_julich_mask,n_displayed_outside_julich_mask,n_displayed_projection_uncertain,n_not_displayed
+left,Dorsale,29,29,29,0,1,0
+left,Ventrale,12,12,12,0,0,0
+left,Non classée,8,8,8,0,0,0
+right,Dorsale,27,27,27,0,1,0
+right,Ventrale,12,12,12,0,0,0
+right,Non classée,24,24,24,0,0,0

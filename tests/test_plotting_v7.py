@@ -17,13 +17,20 @@ from insula_plotter.plotting import (
 )
 
 
-def test_region_legend_only_includes_parcels_with_sites():
+def test_region_legend_includes_posterior_parcels():
     class Atlas:
-        region_names = {1: "Id4 (left)", 2: "Ia2 (left)", 3: "Id6 (left)"}
-        region_colors = {1: "#ff0000", 2: "#0000ff", 3: "#00ff00"}
-    handles = _region_handles(Atlas(), "region_labels", {}, {1, 2})
-    labels = {h.get_label() for h in handles}
-    assert labels == {"ID4 — dorsale", "IA2 — ventrale"}
+        region_names = {
+            1: "Id4 (left)", 2: "Ia2 (left)", 3: "Ig1 (left)",
+            4: "Id2 (left)", 5: "Id3 (left)", 6: "Id5 (left)",
+        }
+        region_colors = {lid: "#00ff00" for lid in region_names}
+    handles = _region_handles(Atlas(), "region_labels", {}, Atlas.region_names)
+    swatches = {h.get_label(): h.get_facecolor() for h in handles}
+    posterior_labels = {f"{code} — postérieure" for code in ("IG1", "ID2", "ID3", "ID5")}
+    assert set(swatches) == posterior_labels | {"ID4 — dorsale", "IA2 — ventrale"}
+    yellows = {swatches[label] for label in posterior_labels}
+    assert len(yellows) == len(posterior_labels)
+    assert all(red >= green > blue for red, green, blue, _ in yellows)
 
 
 def test_face_shading_is_finite_and_preserves_alpha():

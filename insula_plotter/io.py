@@ -5,22 +5,42 @@ import re
 
 import pandas as pd
 
-
 def read_sites(csv_path: str | Path, input_config: dict) -> pd.DataFrame:
     csv_path = Path(csv_path)
+
     if not csv_path.exists():
-        raise FileNotFoundError(f"Input CSV does not exist: {csv_path}")
+        raise FileNotFoundError(
+            f"Input CSV does not exist: {csv_path}"
+        )
 
     df = pd.read_csv(csv_path)
+
+    # Normalize MNI coordinate column names
+    # Accept both X/Y/Z and x/y/z
+    df = df.rename(columns={
+        "X": "x",
+        "Y": "y",
+        "Z": "z",
+    })
+
     cols = {
         "x": input_config.get("x_column", "x"),
         "y": input_config.get("y_column", "y"),
         "z": input_config.get("z_column", "z"),
         "color": input_config.get("color_column", "color"),
     }
-    missing = [column for column in cols.values() if column not in df.columns]
+
+    missing = [
+        column for column in cols.values()
+        if column not in df.columns
+    ]
+
     if missing:
-        raise ValueError(f"Missing columns in {csv_path}: {missing}")
+        raise ValueError(
+            f"Missing columns in {csv_path}: {missing}. "
+            f"Available columns: {list(df.columns)}"
+        )
+
 
     df = df.copy()
     for key in ("x", "y", "z"):

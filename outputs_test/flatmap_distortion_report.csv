@@ -1,0 +1,3 @@
+hemisphere,n_patch_triangles,n_patch_vertices,n_connected_components,n_boundary_loops,n_outer_boundary_vertices,flattening_method,area_comparison_basis,n_discarded_component_triangles,median_relative_area_ratio,p05_relative_area_ratio,p95_relative_area_ratio,p95_absolute_log2_area_distortion
+left,3576,1930,1,1,282,harmonic_tutte,fsLR inflated surface (relative ratios; not native cortical area),0,1.0,0.35137417614078803,1.684079470036675,1.50892116665816
+right,3482,1892,1,1,300,harmonic_tutte,fsLR inflated surface (relative ratios; not native cortical area),0,0.9999999999999999,0.24423629539990224,1.836971962197128,2.03365138773918

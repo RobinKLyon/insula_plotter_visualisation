@@ -8,6 +8,8 @@ import yaml
 
 def load_config(path: str | Path) -> dict[str, Any]:
     path = Path(path)
+    if not path.is_absolute():
+        path = Path(__file__).parent.parent / path
     with path.open("r", encoding="utf-8") as stream:
         config = yaml.safe_load(stream)
     if not isinstance(config, dict):

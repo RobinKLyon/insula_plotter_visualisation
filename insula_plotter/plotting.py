@@ -19,6 +19,7 @@ from scipy.spatial import cKDTree
 
 DORSAL_CODES = {"id4", "id6", "id7"}
 VENTRAL_CODES = {"ia2", "ia3", "id8", "id9", "id10"}
+POSTERIOR_CODES = {"ig1", "ig2", "ig3", "ia1", "id1", "id2", "id3", "id5"}
 STATUS_ORDER = ("gain_only", "loss_only", "both", "both_prefer_gain", "both_prefer_loss")
 DEFAULT_STATUS_COLORS = {
     "gain_only": "#259B55",
@@ -29,13 +30,16 @@ DEFAULT_STATUS_COLORS = {
 }
 DEFAULT_DV_COLORS = {"Dorsale": "#D95F59", "Ventrale": "#4C83B6"}
 
-# Site-bearing parcels use coherent within-family shades rather than unrelated hues.
 DEFAULT_FAMILY_REGION_COLORS = {
     # Warm coral shades: dorsal insula
     "id4": "#B94F45", "id6": "#D46D5F", "id7": "#E99B8E",
     # Blue/teal shades: ventral insula
     "ia2": "#2E718F", "ia3": "#438BA5", "id8": "#62A6BA",
     "id9": "#8BC1CE", "id10": "#B4D9E0",
+    # Posterior insula display group
+    "ig1": "#C59A18", "ig2": "#E3B729", "ig3": "#F3D457",
+    "ia1": "#F8E7A2", "id1": "#E9CC7B",
+    "id2": "#A98A29", "id3": "#CEBA68", "id5": "#FAE578",
 }
 
 def _adjust_contrast(hex_color, contrast=1.0):
@@ -219,6 +223,15 @@ def _label_lookup(atlas_result):
     return by_id, code_by_id
 
 
+def _posterior_site_count(sites, vertex_labels, atlas_result, vertex_column="surface_vertex"):
+    if sites.empty:
+        return 0
+    _, codes = _label_lookup(atlas_result)
+    posterior_ids = [lid for lid, code in codes.items() if code in POSTERIOR_CODES]
+    display_vertices = sites[vertex_column].to_numpy(dtype=int)
+    return int(np.count_nonzero(np.isin(vertex_labels[display_vertices], posterior_ids)))
+
+
 def _normalize_status(s):
     s = str(s).strip().lower().replace(" ", "_").replace("-", "_")
     return {"both_preger_gain": "both_prefer_gain", "both_preger_loss": "both_prefer_loss"}.get(s, s)
@@ -230,14 +243,19 @@ def _category_palette(cfg):
     return p
 
 
-def _region_palette(atlas_result, cfg):
-    p = {int(k): str(v) for k, v in atlas_result.region_colors.items()}
+def _region_palette(atlas_result, cfg, mode="region_labels"):
+    palette = {int(k): to_rgba(v) for k, v in atlas_result.region_colors.items()}
+    palette.update(_family_region_palette(atlas_result, cfg))
     overrides = cfg.get("region_colors", {})
     _, code_by_id = _label_lookup(atlas_result)
+    group_colors = {**DEFAULT_DV_COLORS, **cfg.get("dv_group_colors", {})}
     for lid, code in code_by_id.items():
-        if code in overrides:
-            p[lid] = overrides[code]
-    return p
+        group = _dv_group(code)
+        if mode == "dv_groups" and group in group_colors:
+            palette[lid] = to_rgba(group_colors[group])
+        elif code in overrides:
+            palette[lid] = to_rgba(overrides[code])
+    return palette
 
 
 def _unique_edges(faces):
@@ -283,53 +301,23 @@ def _parcel_boundaries(vertices, faces, vertex_labels, roi_vertex_mask=None):
         lambda a, b: (a != b) and ((a > 0) or (b > 0)),
     )
 
-def _dv_boundaries(vertices, faces, vertex_labels, code_by_id, roi_vertex_mask=None):
-    codes = np.array([code_by_id.get(int(v), "") for v in vertex_labels], dtype=object)
-    groups = np.array(["D" if c in DORSAL_CODES else "V" if c in VENTRAL_CODES else "" for c in codes], dtype=object)
-    return _triangle_boundary_segments(
-        vertices, faces, groups,
-        lambda a, b: {str(a), str(b)} == {"D", "V"},
-    )
-
-
-def _region_handles(atlas_result, mode, cfg, visible_label_ids=None):
-    """Legend for atlas parcels that actually contain one or more displayed sites.
-
-    Every insular parcel remains coloured on the surface. The legend is deliberately
-    sparse: only parcels containing contacts receive an individual label.
-    """
-    _names, codes = _label_lookup(atlas_result)
-    family_colors = _family_region_palette(atlas_result, cfg)
-    if visible_label_ids is None:
-        visible_label_ids = set()
-    visible_label_ids = {int(v) for v in visible_label_ids if int(v) in codes}
-
-    if mode == "dv_groups":
-        present_groups = {_dv_group(codes[lid]) for lid in visible_label_ids}
-        handles = []
-        for group in ("Dorsale", "Ventrale"):
-            if group not in present_groups:
-                continue
-            color = cfg.get("dv_group_colors", {}).get(group, DEFAULT_DV_COLORS[group])
-            handles.append(Patch(facecolor=color, edgecolor="#555555", linewidth=0.45,
-                                 label=group))
-        return handles
-
-    handles = []
-    for lid in sorted(visible_label_ids, key=lambda k: (codes.get(k, ""), k)):
-        code = codes.get(lid, "")
-        if not code:
-            continue
+def _region_handles(atlas_result, mode, cfg, parcel_ids):
+    """Legend for every atlas parcel present in the plotted mesh."""
+    names, codes = _label_lookup(atlas_result)
+    palette = _region_palette(atlas_result, cfg, mode)
+    swatches = {}
+    for lid in sorted(set(parcel_ids) & names.keys(), key=lambda k: (codes[k], k)):
+        code = codes[lid]
         group = _dv_group(code)
-        suffix = f" — {group.lower()}" if group != "Non classée" else ""
-        if lid in family_colors:
-            swatch = family_colors[lid]
+        if mode == "dv_groups" and group in DEFAULT_DV_COLORS:
+            label = group
         else:
-            swatch = cfg.get("unclassified_site_region_color", "#AEB6BF")
-        handles.append(Patch(
-            facecolor=swatch, edgecolor="#555555", linewidth=0.45,
-            label=f"{code.upper()}{suffix}"))
-    return handles
+            region = "postérieure" if code in POSTERIOR_CODES else group.lower()
+            suffix = f" — {region}" if region != "non classée" else ""
+            label = f"{code.upper()}{suffix}" if code else names[lid]
+        swatches.setdefault(label, palette.get(lid, "#999999"))
+    return [Patch(facecolor=color, edgecolor="#555555", linewidth=0.45, label=label)
+            for label, color in swatches.items()]
 
 
 def _status_handles(all_sites, drawn_sites, cfg):
@@ -610,11 +598,7 @@ def _add_surface_panel(ax, side, meshes, atlas_surface, mapped_sites, atlas_resu
         ax.set_title(f"{side.capitalize()} hemisphere — no Julich labels")
         return [], [], pd.DataFrame()
 
-    # Calculate displayed contacts first: only parcels containing a displayed
-    # site receive saturated family colours in the default region-label view.
     sites = _get_display_sites(mapped_sites, side, vlabels, cfg, meshes=meshes, combined=combined)
-    site_vertex_ids = sites["surface_vertex"].astype(int).to_numpy() if len(sites) else np.array([], dtype=int)
-    visible_label_ids = set(np.unique(vlabels[site_vertex_ids]).astype(int)) - {0}
 
     original_vertices = np.asarray(vertices, dtype=float)
     if float(cfg.get("fold_flatten_strength", 0.0)) > 0:
@@ -632,43 +616,17 @@ def _add_surface_panel(ax, side, meshes, atlas_surface, mapped_sites, atlas_resu
     face_mask = np.any(roi_mask[faces], axis=1)
     roi_faces = faces[face_mask]
     polygons3d, polygon_labels = _split_labelled_triangles(vertices, roi_faces, vlabels)
-    names, code_by_id = _label_lookup(atlas_result)
-    palette = _region_palette(atlas_result, cfg)
-    family_palette = _family_region_palette(atlas_result, cfg)
-    show_only_site_regions = bool(cfg.get("show_only_regions_with_sites", True))
+    palette = _region_palette(atlas_result, cfg, mode)
+    parcel_ids = np.unique(polygon_labels[polygon_labels > 0])
     # Only the non-insular cortical shell is translucent. Julich parcels remain
     # independently opaque (parcel_alpha), so the labels and site markers stay crisp.
     context_alpha = float(np.clip(cfg.get("context_alpha", 0.12), 0.0, 1.0))
     context = to_rgba(cfg.get("context_color", "#E4E7EB"), context_alpha)
-    neutral_parcel = to_rgba(cfg.get("unselected_region_color", "#CFD3D8"), 1.0)
     face_colors = np.tile(context, (len(polygons3d), 1))
 
-    for i, label_id in enumerate(polygon_labels):
-        if label_id <= 0:
-            continue
-        code = code_by_id.get(int(label_id), "")
-        group = _dv_group(code)
-        if mode in {"all_labels", "dv_labels", "region_labels"}:
-            if mode != "all_labels" and show_only_site_regions and int(label_id) not in visible_label_ids:
-                face_colors[i] = neutral_parcel
-            elif mode == "all_labels":
-                face_colors[i] = to_rgba(
-                    palette.get(int(label_id), "#999999"),
-                    float(cfg.get("parcel_alpha", 1.0)))
-            elif int(label_id) in family_palette:
-                face_colors[i] = to_rgba(family_palette[int(label_id)], float(cfg.get("parcel_alpha", 1.0)))
-            else:
-                # Site-bearing parcels outside the requested D/V grouping remain
-                # visible but neutral, rather than introducing a third bright hue.
-                face_colors[i] = to_rgba(
-                    cfg.get("unclassified_site_region_color", "#AEB6BF"),
-                    float(cfg.get("parcel_alpha", 1.0)))
-        elif mode == "dv_groups":
-            if group in {"Dorsale", "Ventrale"}:
-                col = cfg.get("dv_group_colors", {}).get(group, DEFAULT_DV_COLORS[group])
-                face_colors[i] = to_rgba(col, float(cfg.get("parcel_alpha", 1.0)))
-            else:
-                face_colors[i] = neutral_parcel
+    for lid in parcel_ids:
+        face_colors[polygon_labels == lid] = to_rgba(
+            palette.get(lid, "#999999"), float(cfg.get("parcel_alpha", 1.0)))
 
     # Give the surrounding cortex a stronger light/shadow gradient than the
     # atlas parcels. This preserves the atlas palette but makes the 3D relief clearer.
@@ -705,14 +663,6 @@ def _add_surface_panel(ax, side, meshes, atlas_surface, mapped_sites, atlas_resu
         grey.set_zorder(8)
         ax.add_collection3d(grey)
 
-    dv_lines = _dv_boundaries(vertices, roi_faces, vlabels, code_by_id, roi_mask)
-    if len(dv_lines):
-        dv_lines = dv_lines + camera[None, None, :] * float(cfg.get("dv_boundary_offset_mm", 0.6))
-        red = Line3DCollection(dv_lines, colors=cfg.get("dv_boundary_color", "#C62828"),
-                               linewidths=float(cfg.get("dv_boundary_linewidth", 1.8)), alpha=0.98)
-        red.set_zorder(15)
-        ax.add_collection3d(red)
-
     if len(sites):
         draw_ids = sites["surface_vertex"].astype(int).to_numpy()
         sites = sites.copy()
@@ -733,9 +683,7 @@ def _add_surface_panel(ax, side, meshes, atlas_surface, mapped_sites, atlas_resu
     shown_group = sites.get("insula_dv_group", pd.Series([], dtype=str))
     drawn_d = int((shown_group == "Dorsale").sum())
     drawn_v = int((shown_group == "Ventrale").sum())
-    shown_vertices = sites["surface_vertex"].astype(int).to_numpy() if len(sites) else np.array([], dtype=int)
-    shown_vertices = shown_vertices[(shown_vertices >= 0) & (shown_vertices < len(vlabels))]
-    visible_label_ids = set(np.unique(vlabels[shown_vertices]).astype(int)) - {0}
+    drawn_p = _posterior_site_count(sites, vlabels, atlas_result)
     def _count_text(total, drawn):
         return str(total) if total == drawn else f"{total} ({drawn} affichés)"
     if combined:
@@ -744,7 +692,7 @@ def _add_surface_panel(ax, side, meshes, atlas_surface, mapped_sites, atlas_resu
     else:
         title = (f"Insula {side} — Dorsale : {_count_text(n_d, drawn_d)} | "
                  f"Ventrale : {_count_text(n_v, drawn_v)}")
-    ax.set_title(title, fontsize=float(cfg.get("side_title_fontsize", 10.5)), pad=5)
+    ax.set_title(f"{title} | Postérieure : {drawn_p}", fontsize=float(cfg.get("side_title_fontsize", 10.5)), pad=5)
     ax.set_axis_off()
     ax.view_init(elev=elev, azim=azim)
     try:
@@ -780,7 +728,7 @@ def _add_surface_panel(ax, side, meshes, atlas_surface, mapped_sites, atlas_resu
     ax.set_zlim(mins[2] - pad[2], maxs[2] + pad[2])
     ax.set_box_aspect(spans + 2 * pad)
 
-    return _region_handles(atlas_result, mode, cfg, visible_label_ids), _status_handles(source_sites, sites, cfg), sites
+    return _region_handles(atlas_result, mode, cfg, parcel_ids), _status_handles(source_sites, sites, cfg), sites
 
 
 def _add_legends(fig, region_handles, site_handles, cfg, colorbar_mappable=None):
@@ -788,7 +736,7 @@ def _add_legends(fig, region_handles, site_handles, cfg, colorbar_mappable=None)
         ncol = min(int(cfg.get("region_legend_ncol", 8)), len(region_handles))
         fig.legend(handles=region_handles, loc="lower center", bbox_to_anchor=(0.5, 0.075),
                    ncol=ncol, frameon=False, fontsize=float(cfg.get("legend_fontsize", 7.5)),
-                   title="Parcelles Julich contenant au moins un contact",
+                   title="Parcelles Julich",
                    title_fontsize=float(cfg.get("legend_title_fontsize", 8)),
                    columnspacing=0.9, handletextpad=0.35)
     if site_handles:
@@ -883,6 +831,7 @@ def _export_workbench(meshes, atlas_surface, mapped_sites, atlas_result, output_
         return
     wb = output_dir / "workbench"
     wb.mkdir(parents=True, exist_ok=True)
+    parcel_palette = _region_palette(atlas_result, cfg)
     for side in ("left", "right"):
         vertices, faces = meshes[side]
         vlabels = np.rint(atlas_surface.left if side == "left" else atlas_surface.right).astype(int)
@@ -899,19 +848,10 @@ def _export_workbench(meshes, atlas_surface, mapped_sites, atlas_result, output_
             nib.gifti.GiftiDataArray(data=remap[f].astype(np.int32), intent="NIFTI_INTENT_TRIANGLE")])
         nib.save(surf, wb / f"insula_{side}_context.surf.gii")
         table = nib.gifti.GiftiLabelTable()
-        family_palette = _family_region_palette(atlas_result, cfg)
-        side_sites = mapped_sites[mapped_sites["hemisphere"] == side] if "hemisphere" in mapped_sites else mapped_sites.iloc[0:0]
-        side_site_vertices = side_sites.loc[side_sites["surface_vertex"].astype(int) >= 0, "surface_vertex"].astype(int).to_numpy() if len(side_sites) else np.array([], dtype=int)
-        visible_ids = set(np.unique(vlabels[side_site_vertices]).astype(int)) - {0} if len(side_site_vertices) else set()
         names_for_labels = {int(k): str(v) for k, v in atlas_result.region_names.items()}
         label_names = {0: "Unlabelled context", **names_for_labels}
         for key, name in label_names.items():
-            if key == 0 or key not in visible_ids:
-                col = to_rgba(cfg.get("unselected_region_color", "#D7DCE1"))
-            elif key in family_palette:
-                col = family_palette[key]
-            else:
-                col = to_rgba(cfg.get("unclassified_site_region_color", "#AEB6BF"))
+            col = parcel_palette.get(key, to_rgba("#D7DCE1" if key == 0 else "#999999"))
             lab = nib.gifti.GiftiLabel(key=int(key), red=col[0], green=col[1], blue=col[2], alpha=col[3]); lab.label = name; table.labels.append(lab)
         arr = nib.gifti.GiftiDataArray(data=vlabels[used].astype(np.int32), intent="NIFTI_INTENT_LABEL")
         nib.save(nib.gifti.GiftiImage(darrays=[arr], labeltable=table), wb / f"insula_{side}_julich.label.gii")
@@ -936,7 +876,7 @@ def _export_workbench(meshes, atlas_surface, mapped_sites, atlas_result, output_
         nib.save(nib.gifti.GiftiImage(darrays=[site_arr], labeltable=site_table), wb / f"insula_{side}_sites.label.gii")
     (wb / "README_workbench.txt").write_text(
         "Open insula_<side>_context.surf.gii in wb_view, then load insula_<side>_julich.label.gii.\n"
-        "The label file contains the complete Julich insula map; the Python figures highlight only the selected D/V parcels.\n"
+        "The label file uses the same parcel colours as the individual-parcel Python figures.\n"
         "Optionally load insula_<side>_sites.label.gii to inspect contact categories/sites.\n",
         encoding="utf-8")
 
@@ -956,26 +896,11 @@ def _flatmap_draw_panel(ax, side, flat, meshes, atlas_surface, mapped_sites,
     xy, faces, _face_labels_unused = flat.xy, flat.faces, flat.face_labels
     polygons, polygon_labels = _split_labelled_triangles(xy, faces, vlabels)
     _names, code_by_id = _label_lookup(atlas_result)
-    palette = _region_palette(atlas_result, cfg)
-    family_palette = _family_region_palette(atlas_result, cfg)
+    palette = _region_palette(atlas_result, cfg, parcel_mode)
     sites = _get_display_sites(mapped_sites, side, vlabels, cfg, meshes=meshes, combined=combined)
-    site_vertex_ids = sites["surface_vertex"].astype(int).to_numpy() if len(sites) else np.array([], dtype=int)
-    visible_label_ids = set(np.unique(vlabels[site_vertex_ids]).astype(int)) - {0}
-
-    face_colors = []
-    for lid in polygon_labels:
-        if lid <= 0:
-            face_colors.append(to_rgba(cfg.get("flatmap_context_color", "#D9DDE2"), 1.0))
-            continue
-        code = code_by_id.get(int(lid), "")
-        group = _dv_group(code)
-        if parcel_mode == "dv_groups":
-            col = cfg.get("dv_group_colors", {}).get(group, DEFAULT_DV_COLORS.get(group, "#C8CDD3"))
-        elif bool(cfg.get("show_only_regions_with_sites", True)) and int(lid) not in visible_label_ids:
-            col = cfg.get("unselected_region_color", "#D4D8DE")
-        else:
-            col = family_palette.get(int(lid), cfg.get("unclassified_site_region_color", "#AEB6BF"))
-        face_colors.append(to_rgba(col, 1.0))
+    context = to_rgba(cfg.get("flatmap_context_color", "#D9DDE2"))
+    fallback = to_rgba("#999999")
+    face_colors = [palette.get(lid, fallback) if lid > 0 else context for lid in polygon_labels]
     patch = PolyCollection(polygons, facecolors=face_colors, edgecolors="none",
                            linewidths=0, antialiased=True, zorder=1)
     ax.add_collection(patch)
@@ -990,20 +915,6 @@ def _flatmap_draw_panel(ax, side, flat, meshes, atlas_surface, mapped_sites,
             linewidths=float(cfg.get("flatmap_boundary_linewidth", 0.65)),
             alpha=0.95, zorder=4))
 
-    # Red dorsal/ventral boundary as a continuous line through triangle interiors.
-    groups = np.array(["D" if code_by_id.get(int(v), "") in DORSAL_CODES
-                       else "V" if code_by_id.get(int(v), "") in VENTRAL_CODES
-                       else "" for v in vlabels], dtype=object)
-    dv_segments = _triangle_boundary_segments(
-        xy, faces, groups, lambda a, b: {str(a), str(b)} == {"D", "V"})
-    if len(dv_segments):
-        ax.add_collection(LineCollection(
-            dv_segments, colors=cfg.get("dv_boundary_color", "#C62828"),
-            linewidths=float(cfg.get("flatmap_dv_linewidth", 1.8)),
-            alpha=1.0, zorder=6))
-
-    # Annotate only the dorsal/ventral regions, as requested; other parcels
-    # remain coloured and can be identified through their site-linked legend.
     if bool(cfg.get("flatmap_show_dv_region_labels", True)):
         for lid, code in code_by_id.items():
             group = _dv_group(code)
@@ -1068,10 +979,8 @@ def _flatmap_draw_panel(ax, side, flat, meshes, atlas_surface, mapped_sites,
                        linewidths=marker_lw, zorder=20)
 
     source_sites = mapped_sites if combined else mapped_sites[mapped_sites["hemisphere"] == side]
-    shown_vertices = sites["flatmap_display_vertex"].astype(int).to_numpy() if len(sites) and "flatmap_display_vertex" in sites else (sites["surface_vertex"].astype(int).to_numpy() if len(sites) else np.array([], dtype=int))
-    shown_vertices = shown_vertices[(shown_vertices >= 0) & (shown_vertices < len(vlabels))]
-    visible_ids = set(np.unique(vlabels[shown_vertices]).astype(int)) - {0}
-    region_handles = _region_handles(atlas_result, "region_labels", cfg, visible_ids)
+    parcel_ids = np.unique(polygon_labels[polygon_labels > 0])
+    region_handles = _region_handles(atlas_result, parcel_mode, cfg, parcel_ids)
     site_handles = [] if site_color_mode == "t_value" else _status_handles(source_sites, sites, cfg)
     if not site_handles and site_color_mode == "input_color":
         site_handles = _input_color_handles(source_sites, sites, cfg)
@@ -1084,7 +993,8 @@ def _flatmap_draw_panel(ax, side, flat, meshes, atlas_surface, mapped_sites,
     title = (f"Couverture bilatérale aplatie — {side} | Dorsale {n_d} ({drawn_d} affichés) | "
              f"Ventrale {n_v} ({drawn_v} affichés)" if combined else
              f"Insula {side} aplatie | Dorsale {n_d} ({drawn_d} affichés) | Ventrale {n_v} ({drawn_v} affichés)")
-    ax.set_title(title, fontsize=float(cfg.get("side_title_fontsize", 10.5)), pad=8)
+    drawn_p = _posterior_site_count(sites, vlabels, atlas_result, "flatmap_display_vertex")
+    ax.set_title(f"{title} | Postérieure : {drawn_p}", fontsize=float(cfg.get("side_title_fontsize", 10.5)), pad=8)
     ax.set_aspect("equal", adjustable="datalim")
     ax.autoscale_view()
     ax.margins(float(cfg.get("flatmap_margin", 0.055)))
@@ -1154,7 +1064,7 @@ def _make_flatmap_figure(output, meshes, atlas_surface, flatmaps, mapped_sites,
         fig.legend(handles=region_handles, loc="lower center", bbox_to_anchor=(0.5, 0.075),
                    ncol=min(int(cfg.get("region_legend_ncol", 8)), len(region_handles)),
                    frameon=False, fontsize=float(cfg.get("legend_fontsize", 7.5)),
-                   title="Régions Julich contenant des sites", title_fontsize=8)
+                   title="Parcelles Julich", title_fontsize=8)
     if site_handles:
         fig.legend(handles=site_handles, loc="lower center", bbox_to_anchor=(0.5, 0.018),
                    ncol=min(6, len(site_handles)), frameon=False,
@@ -1380,14 +1290,21 @@ def make_surface_figures(atlas_surface, mapped_sites, atlas_result, density, out
                     continue
                 fig = plt.figure(figsize=tuple(plot_config.get("single_figsize", [7.5, 6.5])), facecolor="white")
                 ax = fig.add_subplot(1, 1, 1, projection="3d")
-                _add_surface_panel(ax, side, meshes, atlas_surface, sites, atlas_result,
-                                   plot_config, mode="dv_labels", site_color_mode=site_mode,
-                                   tvalue_norm=norm)
+                region_handles, site_handles, shown = _add_surface_panel(
+                    ax, side, meshes, atlas_surface, sites, atlas_result, plot_config,
+                    mode="dv_labels", site_color_mode=site_mode, tvalue_norm=norm)
+                mappable = None
                 if site_mode == "t_value":
                     import matplotlib as mpl
-                    sm = mpl.cm.ScalarMappable(norm=norm, cmap=plot_config.get("tvalue_cmap", "coolwarm"))
-                    cb = fig.colorbar(sm, ax=ax, fraction=0.045, pad=0.02); cb.set_label("t_value")
-                fig.subplots_adjust(left=0.02, right=0.90 if site_mode == "t_value" else 0.98, top=0.94, bottom=0.05)
+                    mappable = mpl.cm.ScalarMappable(norm=norm, cmap=plot_config.get("tvalue_cmap", "coolwarm"))
+                    site_handles = []
+                elif not site_handles:
+                    side_sites = sites[sites["hemisphere"] == side]
+                    site_handles = _input_color_handles(side_sites, shown, plot_config)
+                single_cfg = {**plot_config, "region_legend_ncol": min(6, int(plot_config.get("region_legend_ncol", 8)))}
+                _add_legends(fig, region_handles, site_handles, single_cfg, colorbar_mappable=mappable)
+                fig.subplots_adjust(left=0.02, right=0.90 if mappable is not None else 0.98,
+                                    top=0.94, bottom=0.24 if region_handles else 0.10)
                 path = output_dir / f"insula_{side}_{suffix}.png"
                 fig.savefig(path, dpi=int(plot_config.get("dpi", 300)), bbox_inches="tight", facecolor="white")
                 plt.close(fig); paths.append(path)
